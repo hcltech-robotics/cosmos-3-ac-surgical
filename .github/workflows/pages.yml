@@ -1,0 +1,67 @@
+name: Publish project page
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/pages.yml"
+      - "src/flashdreams_cosmos3_h_surgical/web/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish static site to gh-pages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          site_dir="src/flashdreams_cosmos3_h_surgical/web"
+          temp_dir="$(mktemp -d)"
+          publish_dir="${temp_dir}/site"
+          worktree_dir="${temp_dir}/gh-pages"
+          mkdir -p "${publish_dir}"
+          trap 'rm -rf "${temp_dir}"' EXIT
+
+          cp -a "${site_dir}/." "${publish_dir}/"
+          touch "${publish_dir}/.nojekyll"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin gh-pages || true
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git worktree add "${worktree_dir}" origin/gh-pages
+            cd "${worktree_dir}"
+            git checkout -B gh-pages
+          else
+            git worktree add --detach "${worktree_dir}"
+            cd "${worktree_dir}"
+            git checkout --orphan gh-pages
+          fi
+
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a "${publish_dir}/." .
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Project page is already up to date."
+            exit 0
+          fi
+
+          git commit -m "Publish project page"
+          git push origin gh-pages
